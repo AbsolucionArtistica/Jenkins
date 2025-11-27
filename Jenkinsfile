@@ -51,6 +51,23 @@ pipeline {
                 dependencyCheck additionalArguments: "--scan . --format HTML --out dependency-check-report --enableExperimental --enableRetired --nvdApiKey ${NVD_API_KEY}", odcInstallation: 'DependencyCheck'
             }
         }
+        stage('OWASP ZAP Baseline Scan') {
+    steps {
+        script {
+            sh """
+                docker run --rm --network=host \
+                    -v \$(pwd):/zap/wrk:rw \
+                    owasp/zap2docker-stable zap-baseline.py \
+                    -t ${TARGET_URL} \
+                    -r zap-report.html \
+                    -J zap-report.json \
+                    -x zap-report.xml \
+                    -I
+            """
+        }
+    }
+}
+
 
         stage('Publish Reports') {
             steps {
