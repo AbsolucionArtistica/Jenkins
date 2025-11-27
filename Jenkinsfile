@@ -2,23 +2,21 @@ pipeline {
     agent any
 
     environment {
-        PROJECT_NAME = "pipeline-test"
-        SONARQUBE_URL = "http://sonarqube:9000"
+        PROJECT_NAME    = "pipeline-test"
+        SONARQUBE_URL   = "http://localhost:9000"
         SONARQUBE_TOKEN = "sqa_e51b9943d0a0049daf3083c8f69becd5f9e3acc3"
-        TARGET_URL = "http://172.23.41.49:5000"
+        TARGET_URL      = "http://172.26.245.185:5000"
     }
 
     stages {
-        stage('Install Python') {
+
+        stage('Checkout') {
             steps {
-                sh '''
-                    apt update
-                    apt install -y python3 python3-venv python3-pip
-                '''
+                git branch: 'main', url: 'https://github.com/fernaaandaaaa/proyecto-devsecops.git'
             }
         }
-        
-        stage('Setup Environment') {
+
+        stage('Create Virtualenv & Install Dependencies') {
             steps {
                 sh '''
                     python3 -m venv venv
@@ -28,54 +26,60 @@ pipeline {
                 '''
             }
         }
-        stage('Python Security Audit') {
+
+        stage('SonarQube Analysis') {
+    steps {
+        script {
+            // Nombre EXACTO del Scanner configurado en Jenkins
+            def scannerHome = tool 'SonarQubeScanner'
+
+            // Nombre EXACTO del servidor SonarQube definido en "SonarQube servers"
+            withSonarQubeEnv('SonarQubeScanner') {
+
+                sh """
+                    . venv/bin/activate
+                    "${scannerHome}/bin/sonar-scanner" \
+                      -Dsonar.projectKey=proyecto-devsecops \
+                      -Dsonar.sources=. \
+                      -Dsonar.host.url=http://sonarqube:9000
+                """
+            }
+        }
+    }
+}
+
+
+
+       stage('Dependency Check') {
+    steps {
+        script {
+            // Nombre EXACTO de la herramienta configurada en Jenkins > Tools > Dependency-Check
+            def dcHome = tool 'DependencyCheck'
+
+            sh """
+                ${dcHome}/bin/dependency-check.sh \
+                  --scan . \
+                  --out dependency-check-report \
+                  --format HTML
+            """
+        }
+    }
+}
+
+        stage('Run Python App') {
             steps {
                 sh '''
                     . venv/bin/activate
-                    pip install pip-audit
-                    mkdir -p dependency-check-report
-                    pip-audit -r requirements.txt -f markdown -o dependency-check-report/pip-audit.md || true
+                    python3 vulnerable_server.py &
+                    sleep 5
                 '''
-            }
-        }
-        
-        stage('SonarQube Analysis') {
-            steps {
-                script {
-                    def scannerHome = tool 'SonarQubeScanner'
-                    withSonarQubeEnv('SonarQubeScanner') {
-                        sh """
-                            ${scannerHome}/bin/sonar-scanner \
-                                -Dsonar.projectKey=$PROJECT_NAME \
-                                -Dsonar.sources=. \
-                                -Dsonar.host.url=$SONARQUBE_URL \
-                                -Dsonar.login=$SONARQUBE_TOKEN
-                        """
-                    }
-                }
-            }
-        }
-        stage('Dependency Check') {
-            environment {
-                NVD_API_KEY = credentials('nvdApiKey')
-            }
-            steps {
-                dependencyCheck additionalArguments: "--scan . --format HTML --out dependency-check-report --enableExperimental --enableRetired --nvdApiKey ${NVD_API_KEY}", odcInstallation: 'DependencyCheck'
-            }
-        }
-
-        stage('Publish Reports') {
-            steps {
-                publishHTML([
-                    allowMissing: false,
-                    alwaysLinkToLastBuild: true,
-                    keepAll: true,
-                    reportDir: 'dependency-check-report',
-                    reportFiles: 'dependency-check-report.html',
-                    reportName: 'OWASP Dependency Check Report'
-                ])
             }
         }
     }
 
+    post {
+        always {
+            echo "Pipeline finished."
+        }
+    }
 }
